@@ -1,0 +1,19 @@
+{
+  "title": "Test",
+  "associatedMaps": [
+    11,
+    12
+  ],
+  "associatedChampions": [],
+  "blocks": [
+    {
+      "items": [
+        {
+          "id": "2003",
+          "count": 1
+        }
+      ],
+      "type": "New Block"
+    }
+  ]
+}
