@@ -1,116 +1,320 @@
 // ==UserScript==
-// @name        LoL-ItemsJSON
-// @version     11.14.1
+// @name        League Items JSON Exporter
+// @description Export your mobafire builds to League of Legends Item Sets
+// @version     1.0
 // @author      EagleExe, Abdul Haseeb
-// @include     https://mobafire.com/league-of-legends/build/*
-// @include     https://www.mobafire.com/league-of-legends/build/*
-// @include     https://probuilds.net/guide/show/*
-// @include     https://www.probuilds.net/guide/show/*
+// @match     https://mobafire.com/league-of-legends/build/*
+// @match     https://www.mobafire.com/league-of-legends/build/*
+// @match     https://probuilds.net/guide/show/*
+// @match     https://www.probuilds.net/guide/show/*
 // ==/UserScript==
-
-// If the item name has " (Trinket)" or anything in parenthesis, make a duplicate entry that has the parenthesis removed. This might not be needed anymore.
-for (let k in document.ItemCodes){
-	if (k.has("(")){
-		document.ItemCodes[k.removeParenthesis()] = document.ItemCodes[k];
-	}
-}
-	
-		
-
-document.GatherTheData = function () {
-	let URL = document.location.href;
-	let Author, ChampionName, Title, ChampionCode;
-	if (URL.has("mobafire.com")) {
-		// 
-		Author = document.querySelector(".view-guide__banner__author").querySelector("a").innerHTML + " @ " + document.querySelector(".view-guide__banner__author").querySelector("a").href;
-		ChampionName = document.querySelector(".champ-tabs__more").innerHTML;
-		const len = ChampionName.length;
-		ChampionName = ChampionName.substr(6, len - 8);
-		console.log(ChampionName);
-		Title = document.querySelector(".view-guide__banner__title").querySelector("span").innerHTML.removeTags().trim();
-		ChampionCode = document.ChampionCodes[ChampionName.removeSpaces().removeApostrophe()];
-	} else if (URL.has("probuilds.net")) {
-		let Highlighted = document.querySelector("td[class$='summoner highlighted']");
-		Author = Highlighted.children[0].innerHTML;
-		ChampionName = Highlighted.parentElement.children[0].children[0].children[0].attributes["data-id"].value;
-		if (document.NeedToAddSpaces[ChampionName])
-			ChampionName = document.NeedToAddSpaces[ChampionName];
-		Title = ChampionName + " &lt;" + Author + "&gt;";
-		ChampionCode = document.ChampionCodes[ChampionName];
-	}
-
-	let Output = '{\n\t"title": "' + Title.replaceQuotes() + '",\n\t"associatedMaps": [],\n\t"associatedChampions": [' + ChampionCode + '],\n\t"_notes": "' + URL + '",\n\t"_author": "' + Author + '",\n\t"blocks": [';
-	let GroupName = "", ItemCode, i, j;
-	if (URL.has("mobafire.com")) {
-		String.prototype.removeUnwantedCharacters = function () { return this.replace(/ - [\D]{1,}/g, "") } // The end of the names of some of Mabafire's items include " - Warrier", " - Runic Echoes", " - Cinderhunk", " - Bloodrazer" and these don't match the names in the https://ddragon.leagueoflegends.com/cdn/10.18.1/data/en_US/item.json
-		let Divs = document.querySelectorAll("div.view-guide__items");
-		let ItemSpans;
-		for (i = 0; i < Divs.length; i++) {
-			GroupName = Divs[i].children[0].children[0].innerHTML;
-			Output += '\n\t\t{\n\t\t\t"type": "' + GroupName + '",\n\t\t\t"items": [';
-			ItemSpans = Divs[i].children[1].children;
-			for (j = 0; j < ItemSpans.length; j++) {
-				ItemCode = document.ItemCodes[ItemSpans[j].querySelector("span").innerHTML.removeUnwantedCharacters()];
-				Output += '\n\t\t\t\t{ "id": "' + ItemCode + '", "count": 1 }';
-				if (j != ItemSpans.length - 1)
-					Output += ',';
+const Request = function () {
+	const self = this;
+	self.get = (url) => new Promise((resolve, reject) => {
+		try {
+			const xmlhttp = new XMLHttpRequest();
+			xmlhttp.onreadystatechange = function () {
+				if (this.readyState == 4 && this.status == 200) {
+					resolve(this.responseText);
+				}
 			}
-			Output += '\n\t\t\t]\n\t\t}';
-			if (i < Divs.length - 1)
-				Output += ',';
+			xmlhttp.open("GET", url, true);
+			xmlhttp.send();
+		} catch (error) {
+			reject(error)
 		}
-	} else if (URL.has("probuilds.net")) {
-		let LIs = document.querySelector("ul.buy-order").children;
-		let time, buys = [];
-		for (i = 0; i < LIs.length; i++) {
-			time = LIs[i].children[1].innerHTML.trim();
-			if (time.length > 9) {
-				time = LIs[i].children[2].innerHTML.trim();
-				GroupName = "Sold @ " + time;
-			}
-			buys.push({
-				ItemCode: LIs[i].children[0].attributes["data-id"].value,
-				Time: time
-			});
-			if (i == LIs.length - 1 || GroupName.has("Sold") || LIs[i + 1].className.has("first")) {
-				if (!GroupName) for (j = 0; j < buys.length; j++) {
-					if (j == 0)
-						GroupName = buys[j].Time;
-					else if (j == buys.length - 1)
-						GroupName += " ~ " + buys[j].Time;
-				}
-				Output += '\n\t\t{\n\t\t\t"type": "' + GroupName + '",\n\t\t\t"items": [';
-				for (j = 0; j < buys.length; j++) {
-					Output += '\n\t\t\t\t{ "id": "' + buys[j].ItemCode + '", "count": 1 }';
-					if (j != buys.length - 1)
-						Output += ',';
-				}
-				Output += '\n\t\t\t]\n\t\t}';
-				if (i < LIs.length - 1)
-					Output += ',';
-				GroupName = "";
-				buys = [];
-			}
+	});
+	return self;
+}
+// Reduce Items to a single object
+const reduceItems = (items) => Object.entries(items)
+	.reduce((acc, [itemCode, value]) => ({
+		...acc,
+		[value.name.toLowerCase()]: parseInt(itemCode, 10)
+	}), {});
+// 
+const reduceChampions = (champions) => Object.entries(champions).reduce((acc, [champ, value]) => ({
+	...acc,
+	[champ.toLowerCase()]: parseInt(value.key, 10)
+}), {})
+// 
+const reduceNonSameChamps = (champions) => Object.entries(champions)
+	.filter(([champ, value]) => champ !== value.name)
+	.reduce((acc, [champ, value]) => ({
+		...acc,
+		[value.name.replaceAll(' ', '').replace('\'', '').toLowerCase()]: champ.toLowerCase()
+	}), {})
+/*  RIOT API WRAPPER  */
+const RiotAPI = function () {
+	const self = this;
+	self.request = new Request();
+	// Get current game patch
+	self.currentPatch = async () => {
+		try {
+			const version = await self.request.get('https://ddragon.leagueoflegends.com/api/versions.json');
+			return JSON.parse(version)[0];
+		} catch (error) {
+			console.log('🤷‍♂️ file: LoL-ItemsJSON.user.js:33 🤷‍♂️ error', error)
 		}
 	}
-	Output += "\n\t]\n}";
-	console.log("============ gathered the data ============");
-	return Output;
+	const _getLangs = async () => {
+		// https://ddragon.leagueoflegends.com/cdn/languages.json
+		try {
+			const langs = await self.request.get('https://ddragon.leagueoflegends.com/cdn/languages.json');
+			return JSON.parse(langs);
+		}
+		catch (error) {
+			console.log('🤷‍♂️ file: LoL-ItemsJSON.user.js:33 🤷‍♂️ error', error)
+		}
+	}
+	// Get resources from riot
+	self.getResources = async (version, resource) => {
+		if (['item', 'champion'].includes(resource) === false) {
+			throw new Error('Invalid resource type. Only "items" and "champions" are allowed');
+		}
+		try {
+			if (resource === 'item') {
+				let langs = await _getLangs();
+				langs = langs.filter(i => i !== 'id_ID')
+				const items = await Promise.all(langs.map(async (lang) => await self.request.get(`https://ddragon.leagueoflegends.com/cdn/${version}/data/${lang}/${resource}.json`)));
+				return items.reduce((acc, item) => ({ ...acc, ...reduceItems(JSON.parse(item).data) }), []);
+			}
+			const champsJson = await self.request.get(`https://ddragon.leagueoflegends.com/cdn/${version}/data/en_US/${resource}.json`);
+			const single = reduceChampions(JSON.parse(champsJson).data);
+			const other = reduceNonSameChamps(JSON.parse(champsJson).data);
+			return [single, other];
+		} catch (error) {
+			console.log('🤷‍♂️ file: LoL-ItemsJSON.user.js:42 🤷‍♂️ error', error)
+		}
+	}
 }
-var Button = document.createElement("button");
-Button.style = "position:fixed; top:50px; right:7px; z-index:999999; border:0px; background:darkblue; color:#bbcbe8; padding:5px 9px; font-family:'Open Sans Mobafire','Open Sans',sans-serif,sans-serif";
-Button.innerHTML = "Items JSON";
-Button.onmouseover = function () {
-	document.getElementById("TheTextarea").value = document.GatherTheData();
-	document.getElementById("TheTextarea").style.visibility = "visible";
+const createLogger = (showLogs = false) => (message, data = null) => {
+	return showLogs && console.log(`%cLIJE :: ${message}`, 'background: #222; color: #bada55', data || '')
 }
-Button.onclick = function () {
-	document.getElementById("TheTextarea").style.visibility = document.getElementById("TheTextarea").style.visibility == "hidden" ? "visible" : "hidden";
+//  Items JSON Class
+const ItemSet = function (data, itemCodes, championCodes, needToAddSpaces) {
+	const self = this;
+	//  
+	const getItemBlocks = () => data.items.map((item) => ({
+		title: item.title,
+		content: item.content.map((item) => item.trim()),
+	})).map((item) => ({
+		title: item.title,
+		content: item.content.map((item) => `${itemCodes[item]}`),
+	})).map((item) => ({
+		type: item.title,
+		items: item.content.map((it) => ({
+			id: it,
+			count: 1
+		})),
+	}));
+	// Get the champion code
+	const getChampCode = () => championCodes[data.champion] || championCodes[needToAddSpaces[data.champion]]
+	// Make Blocks
+	const itemBlocks = {
+		associatedMaps: [],
+		title: data.title + ' - ' + data.author,
+		associatedChampions: data.champCode ? [parseInt(data.champCode, 10)] : [getChampCode(data.champion)],
+		blocks: getItemBlocks(),
+	};
+	// Make the final set string
+	self.toJson = () => JSON.stringify(itemBlocks, null, 2);
+	self.title = itemBlocks.title;
+	return self;
 }
-document.body.appendChild(Button);
-var TheTextarea = document.createElement("textarea");
-TheTextarea.style = "position:fixed; top:82px; right:7px; z-index:999999; border:2px dashed navy; width:280px; height:420px; background:gainsboro; color:black; font-size:6px; font-family:'Open Sans Mobafire','Open Sans',sans-serif,sans-serif; overflow-x:hidden; visibility:hidden";
-TheTextarea.id = "TheTextarea";
-TheTextarea.value = document.GatherTheData();
-TheTextarea.onmouseover = function () { document.getElementById("TheTextarea").select() }
-document.body.appendChild(TheTextarea);
+//  Main Class
+const LolItemsJson = function ({ logs = true } = {}) {
+	const self = this;
+	//  Declaring all the vars here
+	const riotAPI = new RiotAPI();
+	const _prefix = 'LIJE_';
+	const log = createLogger(logs);
+	// Get the stored version
+	const _parseExistingData = (item) => {
+		try {
+			return JSON.parse(item);
+		} catch (error) {
+			return item;
+		}
+	};
+	let _installedVersion = localStorage.getItem(`${_prefix}version`) || null;
+	_installedVersion = _parseExistingData(_installedVersion);
+	let _itemCodes = localStorage.getItem(`${_prefix}itemCodes`) || null;
+	_itemCodes = _parseExistingData(_itemCodes);
+	let _championCodes = localStorage.getItem(`${_prefix}championCodes`) || null;
+	_championCodes = _parseExistingData(_championCodes);
+	let _needToAddSpaces = localStorage.getItem(`${_prefix}needToAddSpaces`) || null;
+	_needToAddSpaces = _parseExistingData(_needToAddSpaces);
+	// Integrity check
+	const _integrityCheck = () => {
+		if (_itemCodes === null || _championCodes === null || _needToAddSpaces === null) {
+			log('👎 Integrity check failed. 👎')
+			return false;
+		}
+		log('👍 Integrity check passed. 👍')
+		return true;
+	}
+	// Check if the script is already installed
+	const _alreadyInstalled = () => {
+		if (_installedVersion === null) {
+			log('👎 Script is not installed. 👎')
+			return false;
+		}
+		log('👍 Script is already installed. 👍')
+		return true;
+	}
+	//  Init function
+	const _init = async () => {
+		try {
+			_installedVersion = await riotAPI.currentPatch();
+			log('👍 Fetching the latest version of the items. 👍')
+			_itemCodes = await riotAPI.getResources(_installedVersion, 'item');
+			localStorage.setItem(`${_prefix}itemCodes`, JSON.stringify(_itemCodes));
+			log('👍 Items Loaded... 👍');
+			//	
+			log('👍 Fetching the latest version of the champions. 👍')
+			const response = await riotAPI.getResources(_installedVersion, 'champion');
+			_championCodes = response[0]
+			_needToAddSpaces = response[1]
+			//
+			localStorage.setItem(`${_prefix}championCodes`, JSON.stringify(_championCodes));
+			localStorage.setItem(`${_prefix}needToAddSpaces`, JSON.stringify(_needToAddSpaces));
+			log('👍 Champs Loaded... 👍');
+			// 
+		} catch (error) {
+			log('➡️ 🤷‍♂️ file: LoL-ItemsJSON.user.js:108 🤷‍♂️ error', error)
+			alert('THERE WAS AN ERROR WHILE INITIALIZING THE SCRIPT. PLEASE RELOAD THE PAGE AND TRY AGAIN. IF THE ERROR PERSISTS, PLEASE CONTACT THE DEVELOPER.');
+		}
+	}
+	self.register = async () => {
+		if (_alreadyInstalled() === true && _integrityCheck() === true) {
+			return;
+		}
+		await _init();
+		localStorage.setItem(`${_prefix}version`, _installedVersion);
+	}
+	// Scraping the items from MobaFire
+	const _scrapeFromMobaFire = () => ({
+		title: document.querySelector('.view-guide__banner__title span').innerText.trim(),
+		author: document.querySelector(".view-guide__banner__author").querySelector("a").innerHTML + " @ " + document.querySelector(".view-guide__banner__author").querySelector("a").href,
+		champion: document.querySelector('.champ-tabs__more').innerText.toLowerCase().replace('more ', '').replace(' guides', '').replaceAll(' ', '').replace('\'', ''),
+		items: [...document.querySelectorAll('.view-guide__build__items .view-guide__items')].map(item => {
+			const titleClass = '.view-guide__items__bar';
+			const contentClass = '.view-guide__items__content';
+			const title = item.querySelector(`${titleClass} span`);
+			const content = item.querySelectorAll(`${contentClass} span a`);
+			return {
+				title: title.innerText,
+				content: [...content].map(item => item.innerText.toLowerCase())
+			};
+		})
+	});
+	// Scraping the items from probuilds
+	const _scrapeFromProBuilds = () => ({
+		title: 'Probuild build',
+		author: document.querySelector('td.summoner.highlighted a').innerText,
+		champCode: document.querySelector('td.summoner.highlighted').parentElement.querySelector('.champion-icon .champ-img').dataset.id,
+		items: [
+			{
+				title: document.querySelector('.guide-items div.left:first-of-type h3').innerText,
+				content: [...document.querySelectorAll('.guide-items div.left:first-of-type ul li')]
+					.map(it => it.querySelector('p').innerText).filter(i => i)
+			},
+			...[...document.querySelectorAll('.guide-items div.buy-order ul.buy-order li')]
+				.reduce((acc, it, index) => {
+					const span = it.querySelector('span');
+					const content = it.querySelector('img').getAttribute('alt').toLowerCase();
+					if (index === 0 || it.classList.contains('first')) {
+						return [...acc, {
+							title: span.innerText,
+							content: [content]
+						}];
+					}
+					const { [acc.length - 1]: last } = acc;
+					last.content.push(content);
+					acc[acc.length - 1] = last;
+					return acc;
+				}, [])
+		]
+	});
+	// Scraping the items from Champion.GG
+	const _scrapeFromChampionGG = () => { }
+	// Scraping the items from Lolalytics
+	const _scrapeFromLolalytics = () => { }
+	// Scraping the items from U.GG
+	const _scrapeFromUGG = () => { }
+	// Scraping the items from LolBuilder
+	const _scrapeFromLolBuilder = () => { }
+	// Scraping the items from LolKing
+	const _scrapeFromLolKing = () => { }
+	// Scraping the items from LolCounter
+	const _scrapeFromLolCounter = () => { }
+	// Copy to clipboard
+	const _copyToClipboard = async (title, text) => {
+		await navigator.clipboard.writeText(text);
+		alert(`Item Set:${title} Copied To Clipboard!`);
+	}
+	// Make the button
+	const _makeButton = () => {
+		const location = document.location.href;
+		const buttonWrapper = document.createElement('div');
+		buttonWrapper.style.display = 'flex';
+		buttonWrapper.style.justifyContent = 'center';
+		buttonWrapper.style.alignItems = 'center';
+		buttonWrapper.style.margin = '10px';
+		buttonWrapper.width = "100%"
+		const button = document.createElement('button');
+		button.innerText = '🚀 Export Build to clipboard 🚀';
+		button.style.padding = '10px';
+		button.style.borderRadius = '5px';
+		button.style.border = 'none';
+		button.style.color = 'white';
+		button.style.background = '#2b8b32';
+		button.style.cursor = 'pointer';
+		buttonWrapper.appendChild(button);
+		if (location.includes('mobafire.com')) {
+			const parent = document.querySelector('.view-guide__build__items .collapse-title').parentElement;
+			parent.insertBefore(buttonWrapper, parent.querySelector('.view-guide__build__items .collapseBox'));
+		}
+		if (location.includes('probuilds.net')) {
+			const parent = document.querySelector('.guide-items').parentElement;
+			parent.insertBefore(buttonWrapper, parent.querySelector('.guide-items'));
+		}
+		return button
+	}
+	const _makeListener = (button, title, text) => {
+		button.addEventListener('click', () => _copyToClipboard(title, text));
+	}
+	// Scraping the items from the current page
+	const _scrape = () => {
+		const location = document.location.href;
+		if (location.includes('mobafire.com')) return _scrapeFromMobaFire();
+		if (location.includes('probuilds.net')) return _scrapeFromProBuilds();
+		if (location.includes('champion.gg')) return _scrapeFromChampionGG();
+		if (location.includes('lolalytics.com')) return _scrapeFromLolalytics();
+		if (location.includes('u.gg')) return _scrapeFromUGG();
+		if (location.includes('lolbuilder.net')) return _scrapeFromLolBuilder();
+		if (location.includes('lolking.net')) return _scrapeFromLolKing();
+		if (location.includes('lolcounter.com')) return _scrapeFromLolCounter();
+		return null;
+	}
+	self.compile = async () => {
+		let example = _scrape();
+		// mobafire.com
+		const itemSet = new ItemSet(example, _itemCodes, _championCodes, _needToAddSpaces);
+		const json = itemSet.toJson();
+		const btn = await _makeButton();
+		_makeListener(btn, itemSet.title, json);
+		return itemSet.toJson();
+	}
+	// Actual Logic	
+	return self;
+};
+// Load the script
+(
+	async function () {
+		const lolItemsJson = new LolItemsJson();
+		await lolItemsJson.register();
+		await lolItemsJson.compile();
+	}
+)();
