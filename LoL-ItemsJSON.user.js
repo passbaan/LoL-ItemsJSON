@@ -1,12 +1,13 @@
 // ==UserScript==
-// @name        League Items JSON Exporter
-// @description Export your mobafire builds to League of Legends Item Sets
-// @version     1.0
-// @author      EagleExe, Abdul Haseeb
-// @match     https://mobafire.com/league-of-legends/build/*
-// @match     https://www.mobafire.com/league-of-legends/build/*
-// @match     https://probuilds.net/guide/show/*
-// @match     https://www.probuilds.net/guide/show/*
+// @name         League Items JSON Exporter
+// @description  Export your mobafire builds to League of Legends Item Sets
+// @version      1.0
+// @author       EagleExe
+// @contributer  Passbaan
+// @match        https://mobafire.com/league-of-legends/build/*
+// @match        https://www.mobafire.com/league-of-legends/build/*
+// @match        https://probuilds.net/guide/show/*
+// @match        https://www.probuilds.net/guide/show/*
 // ==/UserScript==
 const Request = function () {
 	const self = this;
