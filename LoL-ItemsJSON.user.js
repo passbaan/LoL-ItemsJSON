@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         League Items JSON Exporter
 // @description  Export your mobafire builds to League of Legends Item Sets
-// @version      1.1
+// @version      1.2
 // @author       EagleExe
 // @contributer  Passbaan
 // @contributer  iustusae
@@ -287,7 +287,7 @@ function scrapeFromDeepLoL(runeCodes = { styles: {}, perks: {}, perkToStyle: {} 
       .filter(Boolean)
       .map(String);
 
-    const statsShards = ids.filter(id => id.startsWith('50')).slice(0, 3);
+    const scrapedStatsShards = ids.filter(id => id.startsWith('50')).slice(0, 3);
     const runeIds = ids.filter(id => !id.startsWith('50'));
     const perkIds = runeIds.filter(id => runeCodes.perkToStyle[id]);
 
@@ -300,8 +300,8 @@ function scrapeFromDeepLoL(runeCodes = { styles: {}, perks: {}, perkToStyle: {} 
 
     const runesPrimary = primaryStyle ? [primaryStyle, ...primaryPerks] : [];
     const runesSecondary = secondaryStyle ? [secondaryStyle, ...secondaryPerks] : [];
-    log('  Rune IDs:', { runesPrimary, runesSecondary, statsShards });
-    return { runesPrimary, runesSecondary, statsShards };
+    log('  Rune IDs:', { runesPrimary, runesSecondary, statsShards: scrapedStatsShards });
+    return { runesPrimary, runesSecondary, statsShards: scrapedStatsShards };
   }
 
   // Extract item IDs directly from image URLs (e.g. /img/item/3032__56.webp -> "3032")
