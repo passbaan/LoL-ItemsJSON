@@ -468,13 +468,15 @@ function waitForElement(selector, timeout = 15000) {
 (async function () {
   log('Script started on', document.location.href);
 
+  const isDeepLoL = document.location.href.includes('deeplol.gg');
+
   let version = loadCached('version');
   let itemCodes = loadCached('itemCodes');
   let champCodes = loadCached('championCodes');
   let champAliases = loadCached('needToAddSpaces');
   let runeCodes = loadCached('runeCodes');
 
-  const needsRefresh = !version || !itemCodes || !champCodes || !champAliases || !runeCodes;
+  const needsRefresh = !version || !itemCodes || !champCodes || !champAliases;
   log('Cache status:', needsRefresh ? 'MISS - fetching from Riot API' : 'HIT - using cached data');
 
   if (needsRefresh) {
@@ -493,15 +495,10 @@ function waitForElement(selector, timeout = 15000) {
       champAliases = champs.aliases;
       log('Champions loaded:', Object.keys(champCodes).length, 'champions,', Object.keys(champAliases).length, 'aliases');
 
-      log('Fetching rune codes...');
-      runeCodes = await getRuneCodes(version);
-      log('Runes loaded:', Object.keys(runeCodes.perks).length, 'perks');
-
       saveCache('version', version);
       saveCache('itemCodes', itemCodes);
       saveCache('championCodes', champCodes);
       saveCache('needToAddSpaces', champAliases);
-      saveCache('runeCodes', runeCodes);
       log('Data cached to localStorage');
     } catch (err) {
       console.error('LIJE: Failed to initialize', err);
@@ -510,8 +507,20 @@ function waitForElement(selector, timeout = 15000) {
     }
   }
 
+  if (isDeepLoL && !runeCodes) {
+    try {
+      log('Fetching rune codes...');
+      runeCodes = await getRuneCodes(version);
+      log('Runes loaded:', Object.keys(runeCodes.perks).length, 'perks');
+      saveCache('runeCodes', runeCodes);
+    } catch (err) {
+      console.error('LIJE: Failed to load rune data', err);
+      runeCodes = { styles: {}, perks: {}, perkToStyle: {} };
+    }
+  }
+
   // Wait for SPA content on deeplol
-  if (document.location.href.includes('deeplol.gg')) {
+  if (isDeepLoL) {
     log('Waiting for deeplol content to load...');
     await waitForElement('img.imgChamp');
     // Also wait for item build tables to render
@@ -520,8 +529,6 @@ function waitForElement(selector, timeout = 15000) {
     await new Promise(r => setTimeout(r, 2000));
     log('Deeplol content ready');
   }
-
-  const isDeepLoL = document.location.href.includes('deeplol.gg');
 
   if (!isDeepLoL) {
     // Mobafire/ProBuilds: scrape once at load
