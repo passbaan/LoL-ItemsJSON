@@ -74,6 +74,12 @@ function normalizeItemId(raw) {
 
 // --- ItemSet builder ---
 
+function resolveChampionCode(data, champCodes, champAliases) {
+  return data.champCode
+    ? parseInt(data.champCode, 10)
+    : champCodes[data.champion] || champCodes[champAliases[data.champion]];
+}
+
 function buildItemSet(data, itemCodes, champCodes, champAliases) {
   const blocks = data.items.map(({ title, content }) => ({
     type: title,
@@ -83,9 +89,7 @@ function buildItemSet(data, itemCodes, champCodes, champAliases) {
     })),
   }));
 
-  const champCode = data.champCode
-    ? parseInt(data.champCode, 10)
-    : champCodes[data.champion] || champCodes[champAliases[data.champion]];
+  const champCode = resolveChampionCode(data, champCodes, champAliases);
 
   const title = `${data.title} - ${data.author}`;
 
@@ -96,6 +100,52 @@ function buildItemSet(data, itemCodes, champCodes, champAliases) {
       title,
       associatedChampions: [champCode],
       blocks,
+    }, null, 2),
+  };
+}
+
+function countItems(items) {
+  return items.reduce((acc, item) => {
+    acc[item] = (acc[item] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function uniqueItems(items) {
+  return [...new Set(items.filter(Boolean))];
+}
+
+function buildFacecheckObject(data, patch) {
+  const startingItems = data.items.find(block => block.title === 'Starting Items')?.content || [];
+  const boots = data.items.find(block => block.title === 'Boots')?.content || [];
+  const buildRows = data.items.filter(block => block.title.startsWith('Build '));
+  const coreBuild = buildRows[0]?.content || [];
+
+  const recommendBuild = uniqueItems([...boots, ...coreBuild]);
+  const alreadyRecommended = new Set([...startingItems, ...recommendBuild]);
+  const situationalBuild = uniqueItems(buildRows.slice(1).flatMap(block => block.content))
+    .filter(item => !alreadyRecommended.has(item));
+
+  const title = data.title || 'OTP Build';
+
+  return {
+    title,
+    toJson: () => JSON.stringify({
+      title,
+      description: '',
+      mapId: 11,
+      roles: [],
+      spells: [],
+      startingBuild: countItems(startingItems),
+      recommendBuild,
+      situationalBuild,
+      runesPrimary: [],
+      runesSecondary: [],
+      statsShards: [],
+      skillOrder: {},
+      qweOrder: '',
+      patch,
+      author: data.author,
     }, null, 2),
   };
 }
@@ -222,14 +272,14 @@ function scrape() {
 
 // --- UI ---
 
-function insertExportButton(onClick) {
+function insertExportButton(onClick, label = 'Export Build to clipboard') {
   const wrapper = document.createElement('div');
   Object.assign(wrapper.style, {
     display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '10px', width: '100%',
   });
 
   const button = document.createElement('button');
-  button.innerText = 'Export Build to clipboard';
+  button.innerText = label;
   Object.assign(button.style, {
     padding: '12px', border: 'none', width: '400px',
     color: 'white', background: '#7b2d8e', cursor: 'pointer',
@@ -382,9 +432,20 @@ function waitForElement(selector, timeout = 15000) {
       const itemSet = buildItemSet(data, itemCodes, champCodes, champAliases);
       log('Item set built:', itemSet.title);
       await navigator.clipboard.writeText(itemSet.toJson());
-      log('Copied to clipboard');
+      log('Copied item set to clipboard');
       showToast(`Item Set: ${itemSet.title} copied!`);
     });
+
+    insertExportButton(async () => {
+      log('Scraping deeplol page for Facecheck export...');
+      const data = scrapeFromDeepLoL();
+      log('Scraped:', data.title, '| Champion:', data.champion, '| Items blocks:', data.items.length);
+      const facecheckObject = buildFacecheckObject(data, version);
+      log('Facecheck object built:', facecheckObject.title);
+      await navigator.clipboard.writeText(facecheckObject.toJson());
+      log('Copied Facecheck object to clipboard');
+      showToast(`Facecheck Object: ${facecheckObject.title} copied!`);
+    }, 'Export Facecheck object to clipboard');
   }
 
   log('Ready');
