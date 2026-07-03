@@ -53,6 +53,37 @@ async function getChampionCodes(version) {
   return { codes, aliases };
 }
 
+async function getRuneCodes(version) {
+  const trees = await fetchJson(`${DDRAGON}/cdn/${version}/data/en_US/runesReforged.json`);
+  const styles = {};
+  const perks = {};
+  const perkToStyle = {};
+
+  function addLookup(target, key, id) {
+    if (!key) return;
+    target[key.toLowerCase()] = String(id);
+    target[String(key).replace(/[^a-z0-9]/gi, '').toLowerCase()] = String(id);
+  }
+
+  function addRuneLookups(target, rune) {
+    addLookup(target, rune.name, rune.id);
+    addLookup(target, rune.key, rune.id);
+    addLookup(target, rune.icon?.split('/').pop()?.replace(/\.png$/i, ''), rune.id);
+  }
+
+  for (const tree of trees) {
+    addRuneLookups(styles, tree);
+    for (const slot of tree.slots) {
+      for (const rune of slot.runes) {
+        addRuneLookups(perks, rune);
+        perkToStyle[String(rune.id)] = String(tree.id);
+      }
+    }
+  }
+
+  return { styles, perks, perkToStyle };
+}
+
 // --- Item ID normalization ---
 
 const ITEM_REPLACEMENTS = {
@@ -139,9 +170,9 @@ function buildFacecheckObject(data, patch) {
       startingBuild: countItems(startingItems),
       recommendBuild,
       situationalBuild,
-      runesPrimary: [],
-      runesSecondary: [],
-      statsShards: [],
+      runesPrimary: data.runesPrimary || [],
+      runesSecondary: data.runesSecondary || [],
+      statsShards: data.statsShards || [],
       skillOrder: {},
       qweOrder: '',
       patch,
@@ -194,11 +225,84 @@ function scrapeFromProBuilds() {
   };
 }
 
-function scrapeFromDeepLoL() {
+function scrapeFromDeepLoL(runeCodes = { styles: {}, perks: {}, perkToStyle: {} }) {
   const champImg = document.querySelector('img.imgChamp');
   const champion = champImg ? champImg.alt.toLowerCase() : '';
 
   const summonerName = document.querySelector('.name')?.innerText.trim() || 'Unknown';
+
+  const STAT_SHARD_CODES = {
+    adaptiveforce: '5008',
+    adaptive: '5008',
+    attackspeed: '5005',
+    abilityhaste: '5007',
+    cooldownreduction: '5007',
+    movespeed: '5010',
+    healthscaling: '5001',
+    scalinghealth: '5001',
+    health: '5011',
+    tenacityandslowresist: '5013',
+    statmodsadaptiveforceicon: '5008',
+    statmodsattackspeedicon: '5005',
+    statmodscdrscalingicon: '5007',
+    statmodsmovementspeedicon: '5010',
+    statmodshealthscalingicon: '5001',
+    statmodshealthplusicon: '5011',
+    statmodstenacityicon: '5013',
+  };
+
+  function normalizeLookupKey(value) {
+    return String(value || '')
+      .split('/')
+      .pop()
+      .replace(/\.[a-z0-9]+$/i, '')
+      .replace(/[^a-z0-9]/gi, '')
+      .toLowerCase();
+  }
+
+  function extractRuneId(img) {
+    const src = img.getAttribute('src') || '';
+    const numeric = src.match(/(?:perk|rune|stat)[/-](\d{4})/i) || src.match(/(\d{4})__/) || src.match(/\b(\d{4})\b/);
+    if (numeric) return numeric[1];
+
+    const keys = [src, img.alt, img.title, img.getAttribute('aria-label')].map(normalizeLookupKey);
+    for (const key of keys) {
+      if (runeCodes.perks[key]) return runeCodes.perks[key];
+      if (runeCodes.styles[key]) return runeCodes.styles[key];
+      if (STAT_SHARD_CODES[key]) return STAT_SHARD_CODES[key];
+    }
+    return null;
+  }
+
+  function firstRuneRow() {
+    const table = findTable('Runes') || findTable('Rune');
+    return table?.querySelector('tbody tr') || document;
+  }
+
+  function scrapeRunes() {
+    const row = firstRuneRow();
+    const ids = [...row.querySelectorAll('img')]
+      .filter(img => /perk|rune|stat|shard|Styles/i.test(`${img.src} ${img.alt} ${img.title}`))
+      .map(extractRuneId)
+      .filter(Boolean)
+      .map(String);
+
+    const statShards = ids.filter(id => id.startsWith('50')).slice(0, 3);
+    const runeIds = ids.filter(id => !id.startsWith('50'));
+    const perkIds = runeIds.filter(id => runeCodes.perkToStyle[id]);
+
+    const primaryStyle = runeIds.find(id => runeCodes.styles && Object.values(runeCodes.styles).includes(id))
+      || runeCodes.perkToStyle[perkIds[0]];
+    const primaryPerks = perkIds.filter(id => runeCodes.perkToStyle[id] === primaryStyle).slice(0, 4);
+    const secondaryStyle = runeIds.find(id => id !== primaryStyle && runeCodes.styles && Object.values(runeCodes.styles).includes(id))
+      || perkIds.map(id => runeCodes.perkToStyle[id]).find(style => style && style !== primaryStyle);
+    const secondaryPerks = perkIds.filter(id => runeCodes.perkToStyle[id] === secondaryStyle).slice(0, 2);
+
+    const runesPrimary = primaryStyle ? [primaryStyle, ...primaryPerks] : [];
+    const runesSecondary = secondaryStyle ? [secondaryStyle, ...secondaryPerks] : [];
+    log('  Rune IDs:', { runesPrimary, runesSecondary, statsShards });
+    return { runesPrimary, runesSecondary, statsShards };
+  }
 
   // Extract item IDs directly from image URLs (e.g. /img/item/3032__56.webp -> "3032")
   function extractItemId(img) {
@@ -248,12 +352,15 @@ function scrapeFromDeepLoL() {
     }).filter(block => block.content.length > 0);
   }
 
+  const runes = scrapeRunes();
+
   // Return with preResolved flag so buildItemSet skips name lookup
   return {
     title: 'OTP Build',
     author: `${summonerName} @ deeplol.gg`,
     champion,
     preResolved: true,
+    ...runes,
     items: [
       { title: 'Starting Items', content: firstRowItems('Starting Items') },
       { title: 'Boots', content: firstRowItems('Boots') },
@@ -365,8 +472,9 @@ function waitForElement(selector, timeout = 15000) {
   let itemCodes = loadCached('itemCodes');
   let champCodes = loadCached('championCodes');
   let champAliases = loadCached('needToAddSpaces');
+  let runeCodes = loadCached('runeCodes');
 
-  const needsRefresh = !version || !itemCodes || !champCodes || !champAliases;
+  const needsRefresh = !version || !itemCodes || !champCodes || !champAliases || !runeCodes;
   log('Cache status:', needsRefresh ? 'MISS - fetching from Riot API' : 'HIT - using cached data');
 
   if (needsRefresh) {
@@ -385,10 +493,15 @@ function waitForElement(selector, timeout = 15000) {
       champAliases = champs.aliases;
       log('Champions loaded:', Object.keys(champCodes).length, 'champions,', Object.keys(champAliases).length, 'aliases');
 
+      log('Fetching rune codes...');
+      runeCodes = await getRuneCodes(version);
+      log('Runes loaded:', Object.keys(runeCodes.perks).length, 'perks');
+
       saveCache('version', version);
       saveCache('itemCodes', itemCodes);
       saveCache('championCodes', champCodes);
       saveCache('needToAddSpaces', champAliases);
+      saveCache('runeCodes', runeCodes);
       log('Data cached to localStorage');
     } catch (err) {
       console.error('LIJE: Failed to initialize', err);
@@ -427,7 +540,7 @@ function waitForElement(selector, timeout = 15000) {
     // DeepLoL: re-scrape on each click (content can change)
     insertExportButton(async () => {
       log('Scraping deeplol page...');
-      const data = scrapeFromDeepLoL();
+      const data = scrapeFromDeepLoL(runeCodes);
       log('Scraped:', data.title, '| Champion:', data.champion, '| Items blocks:', data.items.length);
       const itemSet = buildItemSet(data, itemCodes, champCodes, champAliases);
       log('Item set built:', itemSet.title);
@@ -438,7 +551,7 @@ function waitForElement(selector, timeout = 15000) {
 
     insertExportButton(async () => {
       log('Scraping deeplol page for Facecheck export...');
-      const data = scrapeFromDeepLoL();
+      const data = scrapeFromDeepLoL(runeCodes);
       log('Scraped:', data.title, '| Champion:', data.champion, '| Items blocks:', data.items.length);
       const facecheckObject = buildFacecheckObject(data, version);
       log('Facecheck object built:', facecheckObject.title);
