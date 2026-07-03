@@ -287,7 +287,7 @@ function scrapeFromDeepLoL(runeCodes = { styles: {}, perks: {}, perkToStyle: {} 
       .filter(Boolean)
       .map(String);
 
-    const statShards = ids.filter(id => id.startsWith('50')).slice(0, 3);
+    const statsShards = ids.filter(id => id.startsWith('50')).slice(0, 3);
     const runeIds = ids.filter(id => !id.startsWith('50'));
     const perkIds = runeIds.filter(id => runeCodes.perkToStyle[id]);
 
